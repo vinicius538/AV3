@@ -12,5 +12,6 @@ declare module "@fastify/jwt" {
 declare module "fastify" {
   interface FastifyRequest {
     authenticatedUser: { id: string; usuario: string; papel: Papel } | null;
+    apiPrincipal: { keyId: string; partnerId: string; scopes: string[]; organizationIds: string[] } | null;
   }
 }

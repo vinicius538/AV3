@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -44,17 +43,34 @@ enum TipoEquipamento {
   OUTRO
 }
 
-model Usuario {
-  id           String      @id @default(uuid()) @db.VarChar(36)
-  usuario      String      @unique @db.VarChar(100)
-  hashSenha    String      @map("hash_senha") @db.VarChar(255)
-  salt         String      @db.VarChar(255)
-  ultimoAcesso DateTime    @default(now()) @map("ultimo_acesso")
-  papel        PapelUsuario
-  versao       Int         @default(0)
-  ativo        Boolean     @default(true)
+enum TipoAnalise {
+  EFICIENCIA_OPERACIONAL
+  RENTABILIDADE
+  RUL
+}
 
-  journals     JournalTransacao[]
+enum StatusTarefa {
+  PENDENTE
+  EM_EXECUCAO
+  CONCLUIDA
+  FALHA_FINAL
+}
+
+model Usuario {
+  id           String       @id @default(uuid()) @db.VarChar(36)
+  usuario      String       @unique @db.VarChar(100)
+  hashSenha    String       @map("hash_senha") @db.VarChar(255)
+  salt         String       @db.VarChar(255)
+  ultimoAcesso DateTime     @default(now()) @map("ultimo_acesso")
+  papel        PapelUsuario
+  versao       Int          @default(0)
+  ativo        Boolean      @default(true)
+
+  journals               JournalTransacao[]
+  eventosTriagem         EventoTriagem[]
+  observacoesEquipamento ObservacaoEquipamento[]
+  analisesSolicitadas    ExecucaoAnalitica[]
+  tarefasSolicitadas     TarefaAssincrona[]
 
   @@map("usuarios")
 }
@@ -70,88 +86,96 @@ model ConfiguracaoSistema {
 }
 
 model Organizacao {
-  id                 String    @id @default(uuid()) @db.VarChar(36)
-  razaoSocial        String    @map("razao_social") @db.VarChar(200)
-  cnpj               String    @unique @db.VarChar(18)
-  inscricaoEstadual  String?   @map("inscricao_estadual") @db.VarChar(30)
-  enderecoCompleto   String    @map("endereco_completo") @db.VarChar(255)
-  telefone           String    @db.VarChar(30)
-  email              String    @db.VarChar(150)
-  dataCadastro       DateTime  @default(now()) @map("data_cadastro")
-  ativo              Boolean   @default(true)
-  versao             Int       @default(0)
+  id                String   @id @default(uuid()) @db.VarChar(36)
+  razaoSocial       String   @map("razao_social") @db.VarChar(200)
+  cnpj              String   @unique @db.VarChar(18)
+  inscricaoEstadual String?  @map("inscricao_estadual") @db.VarChar(30)
+  enderecoCompleto  String   @map("endereco_completo") @db.VarChar(255)
+  telefone          String   @db.VarChar(30)
+  email             String   @db.VarChar(150)
+  dataCadastro      DateTime @default(now()) @map("data_cadastro")
+  ativo             Boolean  @default(true)
+  versao            Int      @default(0)
 
-  contratos          Contrato[]
-  lotes              Lote[]
+  contratos       Contrato[]
+  lotes           Lote[]
+  acessosParceiro AcessoParceiroOrganizacao[]
+  analises        ExecucaoAnalitica[]
 
   @@map("organizacoes")
 }
 
 model Contrato {
-  id                  String      @id @default(uuid()) @db.VarChar(36)
-  dataAssinatura      DateTime    @map("data_assinatura")
-  dataVencimento      DateTime    @map("data_vencimento")
+  id                  String   @id @default(uuid()) @db.VarChar(36)
+  dataAssinatura      DateTime @map("data_assinatura")
+  dataVencimento      DateTime @map("data_vencimento")
   clausulas           Json
-  valorMensal         Decimal     @db.Decimal(12, 2) @map("valor_mensal")
-  renovacaoAutomatica Boolean     @default(false) @map("renovacao_automatica")
-  versao              Int         @default(0)
+  valorMensal         Decimal  @map("valor_mensal") @db.Decimal(12, 2)
+  renovacaoAutomatica Boolean  @default(false) @map("renovacao_automatica")
+  versao              Int      @default(0)
 
-  organizacaoId       String      @db.VarChar(36) @map("organizacao_id")
-  organizacao         Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+  organizacaoId String      @map("organizacao_id") @db.VarChar(36)
+  organizacao   Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
 
   @@index([organizacaoId])
   @@map("contratos")
 }
 
 model Lote {
-  id                 String      @id @default(uuid()) @db.VarChar(36)
-  dataEntrada        DateTime    @map("data_entrada")
-  notaFiscal         String      @map("nota_fiscal") @db.VarChar(100)
-  transportadora     String      @db.VarChar(150)
+  id                  String     @id @default(uuid()) @db.VarChar(36)
+  dataEntrada         DateTime   @map("data_entrada")
+  notaFiscal          String     @map("nota_fiscal") @db.VarChar(100)
+  transportadora      String     @db.VarChar(150)
   statusProcessamento StatusLote @default(RECEBIDO) @map("status_processamento")
-  observacoes        String?     @db.Text
-  versao             Int         @default(0)
+  observacoes         String?    @db.Text
+  versao              Int        @default(0)
 
-  organizacaoId      String      @db.VarChar(36) @map("organizacao_id")
-  organizacao        Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
-  equipamentos      Equipamento[]
+  organizacaoId  String          @map("organizacao_id") @db.VarChar(36)
+  organizacao    Organizacao     @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+  equipamentos   Equipamento[]
+  eventosTriagem EventoTriagem[]
 
   @@index([organizacaoId])
   @@map("lotes")
 }
 
 model Equipamento {
-  id                    String             @id @default(uuid()) @db.VarChar(36)
-  codigoBarrasInterno    String             @unique @map("codigo_barras_interno") @db.VarChar(100)
-  tipo                  TipoEquipamento
-  marca                 String             @db.VarChar(100)
-  modelo                String             @db.VarChar(100)
-  anoFabricacao         Int                @map("ano_fabricacao")
-  estadoFisico          EstadoFisico       @map("estado_fisico")
-  pesoQuilogramas       Decimal            @db.Decimal(10, 3) @map("peso_quilogramas")
-  precoMercado          Decimal            @db.Decimal(12, 2) @map("preco_mercado")
-  statusRastreamento    StatusRastreamento @map("status_rastreamento")
-  triagemCompleta       Boolean            @default(false) @map("triagem_completa")
-  etiqueta              String             @default("") @db.VarChar(100)
-  versao                Int                @default(0)
+  id                  String             @id @default(uuid()) @db.VarChar(36)
+  codigoBarrasInterno String             @unique @map("codigo_barras_interno") @db.VarChar(100)
+  tipo                TipoEquipamento
+  marca               String             @db.VarChar(100)
+  modelo              String             @db.VarChar(100)
+  anoFabricacao       Int                @map("ano_fabricacao")
+  estadoFisico        EstadoFisico       @map("estado_fisico")
+  pesoQuilogramas     Decimal            @map("peso_quilogramas") @db.Decimal(10, 3)
+  precoMercado        Decimal            @map("preco_mercado") @db.Decimal(12, 2)
+  statusRastreamento  StatusRastreamento @map("status_rastreamento")
+  triagemCompleta     Boolean            @default(false) @map("triagem_completa")
+  etiqueta            String             @default("") @db.VarChar(100)
+  versao              Int                @default(0)
 
-  loteId                String             @db.VarChar(36) @map("lote_id")
-  lote                  Lote               @relation(fields: [loteId], references: [id], onDelete: Restrict)
-  movimentacoes         Movimentacao[]
+  loteId               String                  @map("lote_id") @db.VarChar(36)
+  lote                 Lote                    @relation(fields: [loteId], references: [id], onDelete: Restrict)
+  movimentacoes        Movimentacao[]
+  observacoes          ObservacaoEquipamento[]
+  falhas               FalhaEquipamento[]
+  materiaisRecuperados MaterialRecuperado[]
+  custosRecuperacao    CustoRecuperacao[]
+  previsoesRul         PrevisaoRul[]
 
   @@index([loteId])
   @@map("equipamentos")
 }
 
 model Movimentacao {
-  id            String     @id @default(uuid()) @db.VarChar(36)
-  dataHora      DateTime   @default(now()) @map("data_hora")
-  origem        String     @db.VarChar(150)
-  destino       String     @db.VarChar(150)
-  responsavel   String     @db.VarChar(150)
-  observacao    String?    @db.Text
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  dataHora    DateTime @default(now()) @map("data_hora")
+  origem      String   @db.VarChar(150)
+  destino     String   @db.VarChar(150)
+  responsavel String   @db.VarChar(150)
+  observacao  String?  @db.Text
 
-  equipamentoId String     @db.VarChar(36) @map("equipamento_id")
+  equipamentoId String      @map("equipamento_id") @db.VarChar(36)
   equipamento   Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
 
   @@index([equipamentoId, dataHora])
@@ -165,16 +189,244 @@ model JournalTransacao {
   entidade           String   @db.VarChar(100)
   dadosAntes         Json?    @map("dados_antes")
   dadosDepois        Json?    @map("dados_depois")
-  usuarioResponsavel String   @db.VarChar(36) @map("usuario_responsavel")
+  usuarioResponsavel String   @map("usuario_responsavel") @db.VarChar(36)
 
-  usuario            Usuario  @relation(fields: [usuarioResponsavel], references: [id], onDelete: Restrict)
+  usuario Usuario @relation(fields: [usuarioResponsavel], references: [id], onDelete: Restrict)
 
   @@index([entidade, timestamp])
   @@index([usuarioResponsavel])
   @@map("journal_transacoes")
 }
 
+model ParceiroApi {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  nome         String   @db.VarChar(150)
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
 
+  chaves       ChaveApi[]
+  organizacoes AcessoParceiroOrganizacao[]
+  analises     ExecucaoAnalitica[]
+  tarefas      TarefaAssincrona[]
 
+  @@map("parceiros_api")
+}
 
+model AcessoParceiroOrganizacao {
+  parceiroId    String   @map("parceiro_id") @db.VarChar(36)
+  organizacaoId String   @map("organizacao_id") @db.VarChar(36)
+  criadoEm      DateTime @default(now()) @map("criado_em")
 
+  parceiro    ParceiroApi @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  organizacao Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+
+  @@id([parceiroId, organizacaoId])
+  @@index([organizacaoId])
+  @@map("acessos_parceiro_organizacao")
+}
+
+model ChaveApi {
+  id          String    @id @default(uuid()) @db.VarChar(36)
+  prefixo     String    @unique @db.VarChar(24)
+  hash        String    @unique @db.VarChar(64)
+  escopos     Json
+  criadaEm    DateTime  @default(now()) @map("criada_em")
+  expiraEm    DateTime? @map("expira_em")
+  revogadaEm  DateTime? @map("revogada_em")
+  ultimoUsoEm DateTime? @map("ultimo_uso_em")
+  parceiroId  String    @map("parceiro_id") @db.VarChar(36)
+
+  parceiro   ParceiroApi        @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  tarefas    TarefaAssincrona[]
+  auditorias AuditoriaApi[]
+
+  @@index([parceiroId, revogadaEm])
+  @@map("chaves_api")
+}
+
+model AuditoriaApi {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  ocorridoEm   DateTime @default(now()) @map("ocorrido_em")
+  operacao     String   @db.VarChar(60)
+  entidade     String   @db.VarChar(100)
+  detalhes     Json?
+  chaveApiId   String   @map("chave_api_id") @db.VarChar(36)
+  idempotencia String?  @db.VarChar(150)
+
+  chaveApi ChaveApi @relation(fields: [chaveApiId], references: [id], onDelete: Restrict)
+
+  @@unique([chaveApiId, idempotencia])
+  @@index([chaveApiId, ocorridoEm])
+  @@index([entidade, ocorridoEm])
+  @@map("auditorias_api")
+}
+
+model EventoTriagem {
+  id             String      @id @default(uuid()) @db.VarChar(36)
+  ocorridoEm     DateTime    @default(now()) @map("ocorrido_em")
+  statusAnterior StatusLote? @map("status_anterior")
+  statusNovo     StatusLote  @map("status_novo")
+  loteId         String      @map("lote_id") @db.VarChar(36)
+  operadorId     String?     @map("operador_id") @db.VarChar(36)
+
+  lote     Lote     @relation(fields: [loteId], references: [id], onDelete: Restrict)
+  operador Usuario? @relation(fields: [operadorId], references: [id], onDelete: Restrict)
+
+  @@index([loteId, ocorridoEm])
+  @@index([operadorId, ocorridoEm])
+  @@map("eventos_triagem")
+}
+
+model ObservacaoEquipamento {
+  id            String        @id @default(uuid()) @db.VarChar(36)
+  ocorridoEm    DateTime      @default(now()) @map("ocorrido_em")
+  metrica       String        @db.VarChar(80)
+  valor         Decimal       @db.Decimal(12, 4)
+  unidade       String        @db.VarChar(30)
+  estadoFisico  EstadoFisico? @map("estado_fisico")
+  observacao    String?       @db.Text
+  equipamentoId String        @map("equipamento_id") @db.VarChar(36)
+  operadorId    String?       @map("operador_id") @db.VarChar(36)
+
+  equipamento Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+  operador    Usuario?    @relation(fields: [operadorId], references: [id], onDelete: Restrict)
+
+  @@index([equipamentoId, ocorridoEm])
+  @@map("observacoes_equipamento")
+}
+
+model FalhaEquipamento {
+  id            String    @id @default(uuid()) @db.VarChar(36)
+  ocorridoEm    DateTime  @default(now()) @map("ocorrido_em")
+  descricao     String    @db.Text
+  inservivel    Boolean   @default(false)
+  reparadoEm    DateTime? @map("reparado_em")
+  equipamentoId String    @map("equipamento_id") @db.VarChar(36)
+
+  equipamento Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+
+  @@index([equipamentoId, ocorridoEm])
+  @@index([inservivel, ocorridoEm])
+  @@map("falhas_equipamento")
+}
+
+model MaterialRecuperado {
+  id            String   @id @default(uuid()) @db.VarChar(36)
+  material      String   @db.VarChar(100)
+  quantidade    Decimal  @db.Decimal(12, 4)
+  unidade       String   @db.VarChar(30)
+  precoUnitario Decimal  @map("preco_unitario") @db.Decimal(12, 4)
+  moeda         String   @default("BRL") @db.VarChar(3)
+  fontePreco    String   @map("fonte_preco") @db.VarChar(200)
+  avaliadoEm    DateTime @default(now()) @map("avaliado_em")
+  equipamentoId String   @map("equipamento_id") @db.VarChar(36)
+
+  equipamento Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+
+  @@index([equipamentoId, avaliadoEm])
+  @@map("materiais_recuperados")
+}
+
+model CustoRecuperacao {
+  id            String   @id @default(uuid()) @db.VarChar(36)
+  categoria     String   @db.VarChar(80)
+  descricao     String?  @db.Text
+  valor         Decimal  @db.Decimal(12, 2)
+  moeda         String   @default("BRL") @db.VarChar(3)
+  ocorridoEm    DateTime @default(now()) @map("ocorrido_em")
+  equipamentoId String   @map("equipamento_id") @db.VarChar(36)
+
+  equipamento Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+
+  @@index([equipamentoId, ocorridoEm])
+  @@map("custos_recuperacao")
+}
+
+model ExecucaoAnalitica {
+  id            String            @id @default(uuid()) @db.VarChar(36)
+  tipo          TipoAnalise
+  parametros    Json
+  resultado     Json
+  iniciadaEm    DateTime          @default(now()) @map("iniciada_em")
+  concluidaEm   DateTime          @default(now()) @map("concluida_em")
+  janelaInicio  DateTime?         @map("janela_inicio")
+  janelaFim     DateTime?         @map("janela_fim")
+  versaoMetodo  String            @default("1") @map("versao_metodo") @db.VarChar(30)
+  usuarioId     String?           @map("usuario_id") @db.VarChar(36)
+  parceiroId    String?           @map("parceiro_id") @db.VarChar(36)
+  organizacaoId String?           @map("organizacao_id") @db.VarChar(36)
+  previsoes     PrevisaoRul[]
+  tarefa        TarefaAssincrona?
+
+  usuario     Usuario?     @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  parceiro    ParceiroApi? @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  organizacao Organizacao? @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
+
+  @@index([tipo, concluidaEm])
+  @@index([organizacaoId, concluidaEm])
+  @@index([parceiroId, concluidaEm])
+  @@map("execucoes_analiticas")
+}
+
+model PrevisaoRul {
+  id                String    @id @default(uuid()) @db.VarChar(36)
+  metodo            String    @db.VarChar(50)
+  valorEstimadoDias Decimal   @map("valor_estimado_dias") @db.Decimal(12, 2)
+  dataAlvo          DateTime? @map("data_alvo")
+  corteDados        DateTime  @map("corte_dados")
+  instantaneo       Json
+  falhaRealEm       DateTime? @map("falha_real_em")
+  erroDias          Decimal?  @map("erro_dias") @db.Decimal(12, 2)
+  equipamentoId     String    @map("equipamento_id") @db.VarChar(36)
+  execucaoId        String    @map("execucao_id") @db.VarChar(36)
+
+  equipamento Equipamento       @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
+  execucao    ExecucaoAnalitica @relation(fields: [execucaoId], references: [id], onDelete: Restrict)
+
+  @@index([equipamentoId, corteDados])
+  @@index([execucaoId])
+  @@map("previsoes_rul")
+}
+
+model TarefaAssincrona {
+  id           String       @id @default(uuid()) @db.VarChar(36)
+  tipo         String       @db.VarChar(60)
+  status       StatusTarefa @default(PENDENTE)
+  progresso    Int          @default(0)
+  parametros   Json
+  erro         String?      @db.Text
+  idempotencia String?      @unique @db.VarChar(150)
+  criadaEm     DateTime     @default(now()) @map("criada_em")
+  iniciadaEm   DateTime?    @map("iniciada_em")
+  concluidaEm  DateTime?    @map("concluida_em")
+  usuarioId    String?      @map("usuario_id") @db.VarChar(36)
+  parceiroId   String?      @map("parceiro_id") @db.VarChar(36)
+  chaveApiId   String?      @map("chave_api_id") @db.VarChar(36)
+  execucaoId   String?      @unique @map("execucao_id") @db.VarChar(36)
+
+  usuario   Usuario?           @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  parceiro  ParceiroApi?       @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  chaveApi  ChaveApi?          @relation(fields: [chaveApiId], references: [id], onDelete: Restrict)
+  execucao  ExecucaoAnalitica? @relation(fields: [execucaoId], references: [id], onDelete: Restrict)
+  relatorio RelatorioGerado?
+
+  @@index([status, criadaEm])
+  @@index([parceiroId, criadaEm])
+  @@map("tarefas_assincronas")
+}
+
+model RelatorioGerado {
+  id       String   @id @default(uuid()) @db.VarChar(36)
+  formato  String   @db.VarChar(10)
+  caminho  String   @db.VarChar(500)
+  checksum String   @db.VarChar(64)
+  criadoEm DateTime @default(now()) @map("criado_em")
+  expiraEm DateTime @map("expira_em")
+  tarefaId String   @unique @map("tarefa_id") @db.VarChar(36)
+
+  tarefa TarefaAssincrona @relation(fields: [tarefaId], references: [id], onDelete: Restrict)
+
+  @@index([expiraEm])
+  @@map("relatorios_gerados")
+}

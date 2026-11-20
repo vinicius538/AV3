@@ -27,6 +27,7 @@ export const loteService = {
         throw new RegraDeNegocioError("Não é possível receber lote de uma organização inativa.", "ORGANIZACAO_INATIVA");
       }
       const lote = await loteRepository.criarTx(tx, organizacaoId, dados);
+      await tx.eventoTriagem.create({ data: { loteId: lote.id, statusAnterior: null, statusNovo: lote.statusProcessamento, operadorId: usuarioResponsavel } });
       return {
         resultado: lote,
         evento: {
@@ -48,6 +49,14 @@ export const loteService = {
       if (!atualizado) throw new ConflitoVersaoError();
       const depois = await loteRepository.buscarPorIdTx(tx, id);
       if (!depois) throw new RegistroNaoEncontradoError();
+      if (dados.statusProcessamento && dados.statusProcessamento !== antes.statusProcessamento) {
+        await tx.eventoTriagem.create({ data: {
+          loteId: id,
+          statusAnterior: antes.statusProcessamento,
+          statusNovo: dados.statusProcessamento,
+          operadorId: usuarioResponsavel,
+        } });
+      }
       return {
         resultado: depois,
         evento: {

@@ -4,7 +4,7 @@ API REST para gestão de logística reversa de equipamentos eletrônicos. O proj
 
 ## Requisitos
 
-- Node.js e npm
+- Node.js 20 ou superior e npm
 - PostgreSQL acessível pela máquina onde a API será executada
 
 ## Instalação e configuração
@@ -243,7 +243,7 @@ npm run db:migrate
 npx prisma migrate status
 ```
 
-O conjunto de testes atual cobre as regras de domínio; ainda não há testes de integração HTTP com PostgreSQL.
+O repositório inclui testes unitários de domínio e uma suíte HTTP de integração com PostgreSQL.
 
 ## Organização do código
 
@@ -254,3 +254,58 @@ O conjunto de testes atual cobre as regras de domínio; ainda não há testes de
 - `src/prisma/schema.prisma`: modelos do banco.
 - `src/prisma/migrations`: histórico de alterações do schema.
 - `src/prisma/seed.ts`: criação idempotente do administrador inicial.
+
+## AV3: análises, parceiros e processamento assíncrono
+
+As rotas AV2 permanecem disponíveis com JWT. As novas rotas são separadas por superfície:
+
+| Superfície | Autenticação | Rotas |
+| --- | --- | --- |
+| Pública v1 | Cabeçalho `x-api-key` | `GET /api/v1/public/traceability/:code`, `POST /api/v1/public/organizations/:organizationId/lots`, `GET/POST /api/v1/public/analytics/reports`, `GET /api/v1/public/analytics/reports/:runId`, `GET /api/v1/public/jobs/:taskId` e `/download` |
+| Interna | JWT e papéis internos | `POST /api/v1/internal/analytics/:kind/jobs`, consulta de execuções/jobs e registro de observações, falhas, materiais recuperados e custos |
+| Administrativa | JWT de administrador | `GET/POST/PATCH /api/v1/admin/partners`, criação de chave em `/api/v1/admin/partners/:partnerId/keys` e revogação em `/api/v1/admin/keys/:keyId` |
+
+OpenAPI/Swagger está disponível em `/docs`. Os tipos de análise aceitos são `EFICIENCIA_OPERACIONAL`, `RENTABILIDADE` e `RUL`. Jobs retornam `202` com `taskId`; o worker persiste execução e relatório JSON/CSV. A API pública limita acesso às organizações associadas ao parceiro e exige os escopos `rastreabilidade:read`, `lotes:write` ou `relatorios:read`.
+
+Para executar a aplicação AV3, configure no `.env`:
+
+```env
+DATABASE_URL="postgresql://usuario:senha@localhost:5432/AV2?schema=public"
+JWT_SECRET="segredo-aleatorio-com-pelo-menos-32-bytes"
+API_KEY_PEPPER="outro-segredo-aleatorio-com-pelo-menos-32-bytes"
+REDIS_URL="redis://localhost:6379"
+REPORTS_DIR=".data/reports"
+```
+
+Instale as dependências, gere o Prisma Client, aplique a migration e execute servidor/worker em processos separados:
+
+```powershell
+npm install
+npm run db:generate
+npm run db:migrate
+npm run dev
+```
+
+Em outro terminal:
+
+```powershell
+npm run worker
+```
+
+Redis 6.2+ ou serviço compatível deve estar ativo para processar jobs. Sem `REDIS_URL`, a API pode continuar respondendo às rotas AV2, mas jobs AV3 permanecem pendentes e são reconciliados quando o worker voltar. Configurar `OPERATIONAL_ANALYSIS_CRON` habilita execução periódica opcional da análise operacional; `REPORT_CLEANUP_CRON` e `REPORT_RETENTION_DAYS` controlam limpeza/expiração dos relatórios.
+
+### Dados analíticos e interpretação
+
+- Eventos de triagem são gravados a partir das alterações de status do lote. A duração usa transição `RECEBIDO` → `EM_TRIAGEM` até `TRIAGEM_CONCLUIDA`; lotes sem eventos históricos não têm duração reconstruída. O relatório os exclui em vez de inventar horários.
+- Rentabilidade utiliza registros de materiais recuperados e custos por equipamento. O valor de mercado aparece separado e sua moeda não é inferida, porque o cadastro legado não informa moeda. O resultado expõe lucro, margem sobre valor bruto e retorno sobre custo; valores percentuais são calculados apenas para equipamentos com dados comparáveis na mesma moeda.
+- RUL exige `metrica` e `limiar` escolhidos pela equipe/solicitante e ao menos três observações na mesma unidade para ajustar uma regressão linear por mínimos quadrados. Séries sem tendência degradante são marcadas inelegíveis. Registrar métrica, unidade e limiar com significado operacional consistente é responsabilidade de quem alimenta os dados.
+- Observações, falhas, materiais e custos são registrados nas rotas internas `POST /api/v1/internal/equipment/:equipmentId/...`. Falha marcada como inservível atualiza o estado atual do equipamento e avalia previsões anteriores.
+
+Administração inicial de parceiro: criar parceiro associado às organizações com `POST /api/v1/admin/partners`, emitir uma chave com escopos autorizados e guardar o segredo retornado uma única vez. Para rotacionar, emitir uma chave nova e revogar a anterior. Não registrar o segredo em logs.
+
+### Limites operacionais conhecidos
+
+- Filas e API dependem do Redis configurado para jobs. Metadados, resultados e estados ficam no PostgreSQL.
+- O rate limit usa Redis compartilhado quando `REDIS_URL` está configurada; sem Redis, usa memória local por processo. A configuração Redis do rate limiter é fail-open durante indisponibilidade para manter a API disponível, então implantações que exigem bloqueio estrito devem monitorar Redis e definir sua política operacional.
+- Arquivos ficam em `REPORTS_DIR` e expiram conforme configuração. Em implantação com API e worker em máquinas diferentes, o diretório precisa ser compartilhado; storage de objeto não está configurado nesta versão.
+- Os indicadores estatísticos descrevem os dados registrados; não estabelecem causalidade entre operador e duração. Rentabilidade exige dados de custo/recuperação; RUL exige observações de saúde compatíveis.
